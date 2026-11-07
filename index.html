@@ -4,12 +4,29 @@
     <meta charset="UTF-8">
     <title>3D Reading Room - Note Book VN</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #1a1a1a; }
+        body { margin: 0; overflow: hidden; background-color: #1a1a1a; font-family: sans-serif; }
         #ui-overlay {
             position: absolute; top: 10px; left: 10px; color: white;
-            font-family: sans-serif; background: rgba(0,0,0,0.75); padding: 15px; border-radius: 8px; z-index: 10;
+            background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; z-index: 10;
+            max-width: 320px;
         }
         .status-ok { color: #4ade80; }
+        
+        /* Modal nhập tên khi click vào bàn */
+        #seat-modal {
+            display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: #222; color: white; padding: 25px; border-radius: 12px; z-index: 100;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; border: 1px solid #444;
+        }
+        #seat-modal input {
+            padding: 10px; width: 80%; margin: 15px 0; border-radius: 6px; border: 1px solid #555;
+            background: #111; color: white; font-size: 16px;
+        }
+        #seat-modal button {
+            padding: 10px 20px; background: #f59e0b; border: none; border-radius: 6px;
+            color: black; font-weight: bold; cursor: pointer; font-size: 14px;
+        }
+        #seat-modal button:hover { background: #d97706; }
     </style>
     <!-- Three.js & Supabase Client -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -19,7 +36,17 @@
     <div id="ui-overlay">
         <h2>Phòng Đọc Sách Note Book VN</h2>
         <p id="status-text">Trạng thái: Đang kết nối Supabase...</p>
-        <p><small>Mẹo: Cập nhật bảng <b>seats</b> trên Supabase để thấy nhân vật thay đổi ghế ngồi.</small></p>
+        <p><small><b>Hướng dẫn:</b> Click trực tiếp vào bàn đọc sách 3D bất kỳ để chọn chỗ ngồi và nhập tên của bạn.</small></p>
+    </div>
+
+    <!-- Hộp thoại nhập tên khi click ghế -->
+    <div id="seat-modal">
+        <h3 id="modal-title">Ngồi vào bàn</h3>
+        <p>Nhập tên tài khoản hoặc tên của bạn:</p>
+        <input type="text" id="viewer-name-input" placeholder="Ví dụ: Note Book VN..." autocomplete="off">
+        <br>
+        <button onclick="confirmTakeSeat()">Xác nhận ngồi</button>
+        <button onclick="closeModal()" style="background:#555; color:white; margin-left: 10px;">Hủy</button>
     </div>
 
     <script>
@@ -33,7 +60,7 @@
         scene.background = new THREE.Color(0x111111);
 
         const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 8, 12);
+        camera.position.set(0, 9, 14);
         camera.lookAt(0, 0, 0);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -54,8 +81,7 @@
         floor.rotation.x = -Math.PI / 2;
         scene.add(floor);
 
-        // 3. Định nghĩa vị trí các bàn đọc sách trong phòng 3D
-        // Mỗi bàn có tọa độ (x, z) cố định trên sàn
+        // 3. Định nghĩa danh sách bàn
         const tablesData = [
             { id: 1, name: "Bàn VIP 1", x: -4, z: -2 },
             { id: 2, name: "Bàn VIP 2", x: 0, z: -2 },
@@ -65,17 +91,16 @@
             { id: 6, name: "Bàn Thường 3", x: 4, z: 2 }
         ];
 
-        const tableMeshes = {}; // Lưu trữ đối tượng 3D của bàn
-        const avatarMeshes = {}; // Lưu trữ đối tượng 3D của nhân vật đang ngồi
+        const interactiveObjects = []; // Mảng chứa các đối tượng có thể click
+        const tableMeshes = {}; 
+        const avatarMeshes = {}; 
 
-        // Vật liệu cho bàn và ghế
         const tableMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b });
         const chairMat = new THREE.MeshStandardMaterial({ color: 0x5c4033 });
         const emptySeatColor = 0x444444;
-        const occupiedSeatColor = 0x3b82f6; // Xanh dương khi có người ngồi
+        const occupiedSeatColor = 0x3b82f6;
 
         tablesData.forEach(tData => {
-            // Nhóm chứa Bàn + Ghế
             const tableGroup = new THREE.Group();
 
             // Mặt bàn
@@ -84,34 +109,34 @@
             tableMesh.position.y = 0.8;
             tableGroup.add(tableMesh);
 
-            // Ghế ngồi (đặt phía trước bàn)
+            // Ghế ngồi (đối tượng để người dùng click chọn)
             const chairGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
             const chairMesh = new THREE.Mesh(chairGeo, chairMat);
             chairMesh.position.set(0, 0.4, 1.1);
-            chairMesh.name = "chair";
+            chairMesh.userData = { seatId: tData.id, seatName: tData.name }; // Gắn ID bàn vào mesh để nhận diện click
             tableGroup.add(chairMesh);
 
             tableGroup.position.set(tData.x, 0, tData.z);
             scene.add(tableGroup);
-            tableMeshes[tData.id] = chairMesh; // Lưu tham chiếu ghế theo ID bàn
+
+            tableMeshes[tData.id] = chairMesh;
+            interactiveObjects.push(chairMesh); // Thêm ghế vào danh sách bắt sự kiện click
         });
 
-        // 4. Hàm tạo Avatar hiển thị người đọc sách và bảng tên
-        function updateSeatInScene(seatId, status, viewerName, bookTitle) {
+        // 4. Hàm vẽ/cập nhật Avatar trên ghế
+        function updateSeatInScene(seatId, status, viewerName) {
             const chair = tableMeshes[seatId];
             if (!chair) return;
 
-            // Nếu bàn có người ngồi (occupied)
             if (status === 'occupied') {
                 chair.material.color.setHex(occupiedSeatColor);
 
-                // Nếu chưa có avatar trên ghế này thì tạo mới
                 if (!avatarMeshes[seatId]) {
                     const avatarGroup = new THREE.Group();
 
-                    // Thân nhân vật (khối hộp đơn giản)
+                    // Thân nhân vật
                     const bodyGeo = new THREE.BoxGeometry(0.6, 0.9, 0.6);
-                    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b }); // Áo vàng nổi bật
+                    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b });
                     const body = new THREE.Mesh(bodyGeo, bodyMat);
                     body.position.set(0, 0.85, 0);
                     avatarGroup.add(body);
@@ -123,11 +148,11 @@
                     head.position.set(0, 1.5, 0);
                     avatarGroup.add(head);
 
-                    // Gắn nhãn tên người dùng (Sử dụng Canvas Texture để render chữ tiếng Việt lên 3D)
+                    // Bảng tên (Canvas Texture)
                     const canvas = document.createElement('canvas');
                     canvas.width = 256; canvas.height = 64;
                     const ctx = canvas.getContext('2d');
-                    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
                     ctx.roundRect(0, 0, 256, 64, 10);
                     ctx.fill();
                     ctx.fillStyle = '#ffffff';
@@ -142,14 +167,12 @@
                     sprite.position.set(0, 2.1, 0);
                     avatarGroup.add(sprite);
 
-                    // Đặt vị trí avatar khớp với vị trí ghế
                     avatarGroup.position.copy(chair.parent.position).add(chair.position);
-                    avatarGroup.position.y = 0; // Đặt trên sàn tương ứng
+                    avatarGroup.position.y = 0;
                     scene.add(avatarGroup);
                     avatarMeshes[seatId] = avatarGroup;
                 }
             } else {
-                // Nếu ghế trống (empty)
                 chair.material.color.setHex(emptySeatColor);
                 if (avatarMeshes[seatId]) {
                     scene.remove(avatarMeshes[seatId]);
@@ -158,38 +181,87 @@
             }
         }
 
-        // 5. Lấy dữ liệu ban đầu và lắng nghe Realtime từ Supabase bảng `seats`
+        // 5. Xử lý sự kiện Raycaster (Click chuột vào bàn 3D)
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let selectedSeatId = null;
+
+        window.addEventListener('click', (event) => {
+            // Chuyển đổi tọa độ chuột sang không gian chuẩn hóa của WebGL (-1 đến +1)
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(interactiveObjects);
+
+            if (intersects.length > 0) {
+                const clickedChair = intersects[0].object;
+                selectedSeatId = clickedChair.userData.seatId;
+                
+                // Mở Modal nhập tên
+                document.getElementById('modal-title').innerText = `Ngồi vào: ${clickedChair.userData.seatName}`;
+                document.getElementById('seat-modal').style.display = 'block';
+                document.getElementById('viewer-name-input').focus();
+            }
+        });
+
+        function closeModal() {
+            document.getElementById('seat-modal').style.display = 'none';
+            selectedSeatId = null;
+        }
+
+        // Hàm gửi dữ liệu lên Supabase khi người dùng xác nhận tên
+        async function confirmTakeSeat() {
+            const viewerName = document.getElementById('viewer-name-input').value.trim();
+            if (!viewerName) {
+                alert('Vui lòng nhập tên của bạn!');
+                return;
+            }
+
+            // Cập nhật dữ liệu vào bảng seats trên Supabase
+            const { error } = await supabaseClient
+                .from('seats')
+                .update({ status: 'occupied', current_viewer: viewerName })
+                .eq('id', selectedSeatId);
+
+            if (error) {
+                alert('Lỗi cập nhật ghế: ' + error.message);
+            } else {
+                closeModal();
+                document.getElementById('viewer-name-input').value = '';
+            }
+        }
+
+        // 6. Đồng bộ dữ liệu ban đầu và Realtime từ Supabase
         async function fetchInitialSeats() {
             const { data, error } = await supabaseClient.from('seats').select('*');
             if (error) {
-                document.getElementById('status-text').innerHTML = '<span style="color:red">Lỗi kết nối bảng seats! Hãy kiểm tra lại tên bảng.</span>';
+                document.getElementById('status-text').innerHTML = '<span style="color:red">Lỗi kết nối bảng seats!</span>';
                 console.error(error);
             } else {
-                document.getElementById('status-text').innerHTML = '<span class="status-ok">Trạng thái: Đã kết nối & Đồng bộ Realtime thành công!</span>';
+                document.getElementById('status-text').innerHTML = '<span class="status-ok">Trạng thái: Đã kết nối & Đồng bộ Realtime!</span>';
                 data.forEach(seat => {
-                    updateSeatInScene(seat.id, seat.status, seat.current_viewer, seat.selected_book_id);
+                    updateSeatInScene(seat.id, seat.status, seat.current_viewer);
                 });
             }
         }
         fetchInitialSeats();
 
-        // Lắng nghe thay đổi thời gian thực qua Supabase Realtime WebSocket
         supabaseClient
             .channel('public:seats')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'seats' }, payload => {
                 const updatedSeat = payload.new;
-                updateSeatInScene(updatedSeat.id, updatedSeat.status, updatedSeat.current_viewer, updatedSeat.selected_book_id);
+                updateSeatInScene(updatedSeat.id, updatedSeat.status, updatedSeat.current_viewer);
             })
             .subscribe();
 
-        // 6. Vòng lặp Render 3D
+        // 7. Vòng lặp Render 3D
         function animate() {
             requestAnimationFrame(animate);
             renderer.render(scene, camera);
         }
         animate();
 
-        // Xử lý khi thay đổi kích thước màn hình
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
