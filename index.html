@@ -7,59 +7,80 @@
         body { margin: 0; overflow: hidden; background-color: #1a1a1a; }
         #ui-overlay {
             position: absolute; top: 10px; left: 10px; color: white;
-            font-family: sans-serif; background: rgba(0,0,0,0.6); padding: 15px; border-radius: 8px;
+            font-family: sans-serif; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px;
         }
     </style>
-    <!-- Nhúng thư viện Three.js từ CDN -->
+    <!-- Thư viện Three.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Thư viện Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <div id="ui-overlay">
         <h2>Phòng Đọc Sách Note Book VN</h2>
-        <p>Trạng thái: Đang kết nối Supabase...</p>
+        <p id="status-text">Trạng thái: Đang kết nối Supabase...</p>
     </div>
 
     <script>
-        // 1. Khởi tạo Scene, Camera, Renderer
+        // 1. Cấu hình kết nối Supabase (Thay thông số của bạn vào đây)
+        const SUPABASE_URL = 'https://qlhtspfaumebrhgkvcop.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_O49pJRLFc0RlTzfGR9EzOA_aV7d7Es6'; // Dán đầy đủ key của bạn vào đây
+
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // Kiểm tra kết nối thực tế bằng cách gọi thử vào database
+        async function checkSupabaseConnection() {
+            try {
+                const { data, error } = await supabaseClient.from('seats').select('*').limit(1);
+                if (error) {
+                    document.getElementById('status-text').innerText = 'Trạng thái: Lỗi kết nối (Kiểm tra lại tên bảng seats)';
+                    console.error('Supabase error:', error.message);
+                } else {
+                    document.getElementById('status-text').innerText = 'Trạng thái: Đã kết nối Supabase thành công!';
+                }
+            } catch (err) {
+                document.getElementById('status-text').innerText = 'Trạng thái: Mất kết nối mạng!';
+                console.error(err);
+            }
+        }
+        checkSupabaseConnection();
+
+        // 2. Khởi tạo Scene 3D
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // Ánh sáng cơ bản
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
         scene.add(ambientLight);
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
         directionalLight.position.set(10, 20, 10);
         scene.add(directionalLight);
 
-        // 2. Tạo sàn phòng đọc sách
+        // Sàn phòng
         const floorGeo = new THREE.PlaneGeometry(20, 20);
-        const floorMat = new THREE.MeshStandardMaterial({ color: 0x3d2817 }); // Màu gỗ tối
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x3d2817 });
         const floor = new THREE.Mesh(floorGeo, floorMat);
         floor.rotation.x = -Math.PI / 2;
         scene.add(floor);
 
-        // 3. Tạo mẫu bàn đọc sách tượng trưng (Ví dụ Bàn số 1)
+        // Bàn đọc sách mẫu
         const tableGeo = new THREE.BoxGeometry(2, 0.5, 1.5);
         const tableMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b });
         const table1 = new THREE.Mesh(tableGeo, tableMat);
         table1.position.set(-3, 0.25, 0);
         scene.add(table1);
 
-        // Đặt camera nhìn vào không gian
         camera.position.set(0, 10, 12);
         camera.lookAt(0, 0, 0);
 
-        // Vòng lặp render animation
         function animate() {
             requestAnimationFrame(animate);
             renderer.render(scene, camera);
         }
         animate();
 
-        // Xử lý khi resize màn hình
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
@@ -68,21 +89,22 @@
     </script>
 </body>
 </html>
+```[cite: 3, 4]
 
-<!-- Nhúng Supabase JS Client -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>
-    // Khởi tạo Supabase client với Project URL và Anon Key của bạn
-    const SUPABASE_URL = 'https://qlhtspfaumebrhgkvcop.supabase.co';
-    const SUPABASE_ANON_KEY = 'sb_publishable_O49pJRLFc0RlTzfGR9EzOA_aV7d7Es6';
-    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+### Các bước kiểm tra nhanh:
+<Steps>
+<Step subtitle="File index.html" title="Thay thế đoạn mã">
+* Dán toàn bộ mã nguồn trên vào file `index.html` trên kho lưu trữ GitHub của bạn.
+* *Verification:* Nhớ thay đoạn `sb_publishable_O49pJRLFc0RlTzfGR...` bằng toàn bộ chuỗi Publishable key dài của bạn[cite: 3].
+</Step>
 
-    // Lắng nghe sự kiện thay đổi dữ liệu ghế ngồi theo thời gian thực
-    supabaseClient
-        .channel('public:seats')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'seats' }, payload => {
-            console.log('Trạng thái ghế thay đổi:', payload.new);
-            // Tại đây bạn cập nhật lại màu sắc hoặc hiển thị tên người dùng lên bàn 3D tương ứng
-        })
-        .subscribe();
-</script>
+<Step subtitle="Supabase Dashboard" title="Kiểm tra bảng Database">
+* Đảm bảo trên Supabase của bạn đã tạo một bảng tên là **`seats`** (vì đoạn code trên thực hiện truy vấn kiểm tra bảng này). Nếu chưa có, bạn chỉ cần vào *Table Editor* tạo một bảng bất kỳ tên là `seats` là dòng trạng thái sẽ chuyển thành xanh.
+* *Verification:* Tải lại (Hard Refresh bằng tổ hợp phím `Ctrl + F5`) trang web GitHub Pages của bạn sau 1-2 phút để xóa bộ nhớ đệm trình duyệt[cite: 4].
+</Step>
+</Steps>
+
+<ElicitationsGroup message="Nếu trang web vẫn báo lỗi hoặc chưa chuyển trạng thái:">
+  <Elicitation label="Xem lỗi chi tiết trên F12" query="Tôi đã bấm F12 mở Console trên trình duyệt và thấy dòng lỗi này..."/>
+  <Elicitation label="Cách tạo bảng seats trên Supabase" query="Hướng dẫn tôi tạo bảng seats trên Supabase chuẩn xác nhất"/>
+</ElicitationsGroup>
