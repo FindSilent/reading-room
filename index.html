@@ -68,3 +68,21 @@
     </script>
 </body>
 </html>
+
+<!-- Nhúng Supabase JS Client -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+    // Khởi tạo Supabase client với Project URL và Anon Key của bạn
+    const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+    const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Lắng nghe sự kiện thay đổi dữ liệu ghế ngồi theo thời gian thực
+    supabaseClient
+        .channel('public:seats')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'seats' }, payload => {
+            console.log('Trạng thái ghế thay đổi:', payload.new);
+            // Tại đây bạn cập nhật lại màu sắc hoặc hiển thị tên người dùng lên bàn 3D tương ứng
+        })
+        .subscribe();
+</script>
