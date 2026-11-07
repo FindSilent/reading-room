@@ -7,80 +7,189 @@
         body { margin: 0; overflow: hidden; background-color: #1a1a1a; }
         #ui-overlay {
             position: absolute; top: 10px; left: 10px; color: white;
-            font-family: sans-serif; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px;
+            font-family: sans-serif; background: rgba(0,0,0,0.75); padding: 15px; border-radius: 8px; z-index: 10;
         }
+        .status-ok { color: #4ade80; }
     </style>
-    <!-- Thư viện Three.js -->
+    <!-- Three.js & Supabase Client -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Thư viện Supabase JS Client -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <div id="ui-overlay">
         <h2>Phòng Đọc Sách Note Book VN</h2>
         <p id="status-text">Trạng thái: Đang kết nối Supabase...</p>
+        <p><small>Mẹo: Cập nhật bảng <b>seats</b> trên Supabase để thấy nhân vật thay đổi ghế ngồi.</small></p>
     </div>
 
     <script>
-        // 1. Cấu hình kết nối Supabase (Thay thông số của bạn vào đây)
+        // 1. Cấu hình Supabase (Thay thông số của bạn vào đây)
         const SUPABASE_URL = 'https://qlhtspfaumebrhgkvcop.supabase.co';
-        const SUPABASE_ANON_KEY = 'sb_publishable_O49pJRLFc0RlTzfGR9EzOA_aV7d7Es6'; // Dán đầy đủ key của bạn vào đây
-
+        const SUPABASE_ANON_KEY = 'sb_publishable_O49pJRLFc0RlTzfGR9EzOA_aV7d7Es6'; // Điền Publishable key của bạn
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-        // Kiểm tra kết nối thực tế bằng cách gọi thử vào database
-        async function checkSupabaseConnection() {
-            try {
-                const { data, error } = await supabaseClient.from('seats').select('*').limit(1);
-                if (error) {
-                    document.getElementById('status-text').innerText = 'Trạng thái: Lỗi kết nối (Kiểm tra lại tên bảng seats)';
-                    console.error('Supabase error:', error.message);
-                } else {
-                    document.getElementById('status-text').innerText = 'Trạng thái: Đã kết nối Supabase thành công!';
-                }
-            } catch (err) {
-                document.getElementById('status-text').innerText = 'Trạng thái: Mất kết nối mạng!';
-                console.error(err);
-            }
-        }
-        checkSupabaseConnection();
 
         // 2. Khởi tạo Scene 3D
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        scene.background = new THREE.Color(0x111111);
+
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 8, 12);
+        camera.lookAt(0, 0, 0);
+
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        // Ánh sáng
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
         scene.add(ambientLight);
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(10, 20, 10);
-        scene.add(directionalLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+        dirLight.position.set(10, 20, 10);
+        scene.add(dirLight);
 
-        // Sàn phòng
-        const floorGeo = new THREE.PlaneGeometry(20, 20);
-        const floorMat = new THREE.MeshStandardMaterial({ color: 0x3d2817 });
+        // Sàn nhà phòng đọc
+        const floorGeo = new THREE.PlaneGeometry(24, 24);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x2c1d11, roughness: 0.8 });
         const floor = new THREE.Mesh(floorGeo, floorMat);
         floor.rotation.x = -Math.PI / 2;
         scene.add(floor);
 
-        // Bàn đọc sách mẫu
-        const tableGeo = new THREE.BoxGeometry(2, 0.5, 1.5);
+        // 3. Định nghĩa vị trí các bàn đọc sách trong phòng 3D
+        // Mỗi bàn có tọa độ (x, z) cố định trên sàn
+        const tablesData = [
+            { id: 1, name: "Bàn VIP 1", x: -4, z: -2 },
+            { id: 2, name: "Bàn VIP 2", x: 0, z: -2 },
+            { id: 3, name: "Bàn VIP 3", x: 4, z: -2 },
+            { id: 4, name: "Bàn Thường 1", x: -4, z: 2 },
+            { id: 5, name: "Bàn Thường 2", x: 0, z: 2 },
+            { id: 6, name: "Bàn Thường 3", x: 4, z: 2 }
+        ];
+
+        const tableMeshes = {}; // Lưu trữ đối tượng 3D của bàn
+        const avatarMeshes = {}; // Lưu trữ đối tượng 3D của nhân vật đang ngồi
+
+        // Vật liệu cho bàn và ghế
         const tableMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b });
-        const table1 = new THREE.Mesh(tableGeo, tableMat);
-        table1.position.set(-3, 0.25, 0);
-        scene.add(table1);
+        const chairMat = new THREE.MeshStandardMaterial({ color: 0x5c4033 });
+        const emptySeatColor = 0x444444;
+        const occupiedSeatColor = 0x3b82f6; // Xanh dương khi có người ngồi
 
-        camera.position.set(0, 10, 12);
-        camera.lookAt(0, 0, 0);
+        tablesData.forEach(tData => {
+            // Nhóm chứa Bàn + Ghế
+            const tableGroup = new THREE.Group();
 
+            // Mặt bàn
+            const tableGeo = new THREE.BoxGeometry(2.2, 0.4, 1.4);
+            const tableMesh = new THREE.Mesh(tableGeo, tableMat);
+            tableMesh.position.y = 0.8;
+            tableGroup.add(tableMesh);
+
+            // Ghế ngồi (đặt phía trước bàn)
+            const chairGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+            const chairMesh = new THREE.Mesh(chairGeo, chairMat);
+            chairMesh.position.set(0, 0.4, 1.1);
+            chairMesh.name = "chair";
+            tableGroup.add(chairMesh);
+
+            tableGroup.position.set(tData.x, 0, tData.z);
+            scene.add(tableGroup);
+            tableMeshes[tData.id] = chairMesh; // Lưu tham chiếu ghế theo ID bàn
+        });
+
+        // 4. Hàm tạo Avatar hiển thị người đọc sách và bảng tên
+        function updateSeatInScene(seatId, status, viewerName, bookTitle) {
+            const chair = tableMeshes[seatId];
+            if (!chair) return;
+
+            // Nếu bàn có người ngồi (occupied)
+            if (status === 'occupied') {
+                chair.material.color.setHex(occupiedSeatColor);
+
+                // Nếu chưa có avatar trên ghế này thì tạo mới
+                if (!avatarMeshes[seatId]) {
+                    const avatarGroup = new THREE.Group();
+
+                    // Thân nhân vật (khối hộp đơn giản)
+                    const bodyGeo = new THREE.BoxGeometry(0.6, 0.9, 0.6);
+                    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b }); // Áo vàng nổi bật
+                    const body = new THREE.Mesh(bodyGeo, bodyMat);
+                    body.position.set(0, 0.85, 0);
+                    avatarGroup.add(body);
+
+                    // Đầu nhân vật
+                    const headGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+                    const headMat = new THREE.MeshStandardMaterial({ color: 0xffdbac });
+                    const head = new THREE.Mesh(headGeo, headMat);
+                    head.position.set(0, 1.5, 0);
+                    avatarGroup.add(head);
+
+                    // Gắn nhãn tên người dùng (Sử dụng Canvas Texture để render chữ tiếng Việt lên 3D)
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 256; canvas.height = 64;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                    ctx.roundRect(0, 0, 256, 64, 10);
+                    ctx.fill();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 20px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(viewerName || "Khách", 128, 40);
+
+                    const texture = new THREE.CanvasTexture(canvas);
+                    const spriteMat = new THREE.SpriteMaterial({ map: texture });
+                    const sprite = new THREE.Sprite(spriteMat);
+                    sprite.scale.set(1.5, 0.4, 1);
+                    sprite.position.set(0, 2.1, 0);
+                    avatarGroup.add(sprite);
+
+                    // Đặt vị trí avatar khớp với vị trí ghế
+                    avatarGroup.position.copy(chair.parent.position).add(chair.position);
+                    avatarGroup.position.y = 0; // Đặt trên sàn tương ứng
+                    scene.add(avatarGroup);
+                    avatarMeshes[seatId] = avatarGroup;
+                }
+            } else {
+                // Nếu ghế trống (empty)
+                chair.material.color.setHex(emptySeatColor);
+                if (avatarMeshes[seatId]) {
+                    scene.remove(avatarMeshes[seatId]);
+                    delete avatarMeshes[seatId];
+                }
+            }
+        }
+
+        // 5. Lấy dữ liệu ban đầu và lắng nghe Realtime từ Supabase bảng `seats`
+        async function fetchInitialSeats() {
+            const { data, error } = await supabaseClient.from('seats').select('*');
+            if (error) {
+                document.getElementById('status-text').innerHTML = '<span style="color:red">Lỗi kết nối bảng seats! Hãy kiểm tra lại tên bảng.</span>';
+                console.error(error);
+            } else {
+                document.getElementById('status-text').innerHTML = '<span class="status-ok">Trạng thái: Đã kết nối & Đồng bộ Realtime thành công!</span>';
+                data.forEach(seat => {
+                    updateSeatInScene(seat.id, seat.status, seat.current_viewer, seat.selected_book_id);
+                });
+            }
+        }
+        fetchInitialSeats();
+
+        // Lắng nghe thay đổi thời gian thực qua Supabase Realtime WebSocket
+        supabaseClient
+            .channel('public:seats')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'seats' }, payload => {
+                const updatedSeat = payload.new;
+                updateSeatInScene(updatedSeat.id, updatedSeat.status, updatedSeat.current_viewer, updatedSeat.selected_book_id);
+            })
+            .subscribe();
+
+        // 6. Vòng lặp Render 3D
         function animate() {
             requestAnimationFrame(animate);
             renderer.render(scene, camera);
         }
         animate();
 
+        // Xử lý khi thay đổi kích thước màn hình
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
@@ -89,22 +198,3 @@
     </script>
 </body>
 </html>
-```[cite: 3, 4]
-
-### Các bước kiểm tra nhanh:
-<Steps>
-<Step subtitle="File index.html" title="Thay thế đoạn mã">
-* Dán toàn bộ mã nguồn trên vào file `index.html` trên kho lưu trữ GitHub của bạn.
-* *Verification:* Nhớ thay đoạn `sb_publishable_O49pJRLFc0RlTzfGR...` bằng toàn bộ chuỗi Publishable key dài của bạn[cite: 3].
-</Step>
-
-<Step subtitle="Supabase Dashboard" title="Kiểm tra bảng Database">
-* Đảm bảo trên Supabase của bạn đã tạo một bảng tên là **`seats`** (vì đoạn code trên thực hiện truy vấn kiểm tra bảng này). Nếu chưa có, bạn chỉ cần vào *Table Editor* tạo một bảng bất kỳ tên là `seats` là dòng trạng thái sẽ chuyển thành xanh.
-* *Verification:* Tải lại (Hard Refresh bằng tổ hợp phím `Ctrl + F5`) trang web GitHub Pages của bạn sau 1-2 phút để xóa bộ nhớ đệm trình duyệt[cite: 4].
-</Step>
-</Steps>
-
-<ElicitationsGroup message="Nếu trang web vẫn báo lỗi hoặc chưa chuyển trạng thái:">
-  <Elicitation label="Xem lỗi chi tiết trên F12" query="Tôi đã bấm F12 mở Console trên trình duyệt và thấy dòng lỗi này..."/>
-  <Elicitation label="Cách tạo bảng seats trên Supabase" query="Hướng dẫn tôi tạo bảng seats trên Supabase chuẩn xác nhất"/>
-</ElicitationsGroup>
